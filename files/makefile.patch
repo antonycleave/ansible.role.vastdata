@@ -1,0 +1,17 @@
+ubuntu@finetune-2:/tmp/vastnfs-4.0.32$ cat makefile.patch
+--- makefile    2024-12-19 10:31:53.000000000 +0000
++++ makefile.new        2025-03-03 14:33:27.728931550 +0000
+@@ -127,11 +127,13 @@
+ # compiled with GCC 4.6.0 and above.
+ # therefore, to prevent unknown symbol issues we disable function tracing.
+ #
++ifndef CC
+ ifeq ($(ccache),1)
+ CC  = ccache $(CROSS_COMPILE)gcc
+ else
+ CC  = $(CROSS_COMPILE)gcc
+ endif
++endif
+ CPP = $(CC) -E
+
+ CPP_MAJOR := $(shell $(CPP) -dumpversion 2>&1 | cut -d'.' -f1)

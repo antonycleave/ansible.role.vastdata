@@ -1,0 +1,17 @@
+---
+# vastdata_meta_url is used to get the latest version
+vastdata_meta_url: https://vast-nfs.s3.amazonaws.com/meta.json
+
+vastdata_version_key: latest # key from the meta service like "latest_3" or "latest"
+#if you define a specific version in it will not query for the latest version and pull it direct
+#vastdata_version: 4.0.32
+#                 https://vast-nfs.s3.amazonaws.com/version/4.0.32              /source/vastnfs-4.0.32.tar.xz
+vastdata_baseurl: https://vast-nfs.s3.amazonaws.com/version/{{vastdata_version}}/source
+vastdata_download_url: "{{ vastdata_baseurl }}/vastnfs-{{vastdata_version}}.tar.xz"
+vastdata_tar_download_dir: /tmp # download the tar file to here
+vastdata_tar_extract_dir: /tmp # extract downloaded tar to here
+vastdata_tar_extracted_dir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}" # this dir will contain the extracted files
+vastdata_use_cc_override: False # certain OS need a different c compiler when using certain kernels the default is False this will get changed if detected
+vastdata_build_dkms: True # only affects Ubuntu but we can only hope in future it's supported on RHEL
+vastdata_publish_dir: /opt/vast
+vastdata_install_pkg: True # if true install the package

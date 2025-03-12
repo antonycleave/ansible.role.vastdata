@@ -1,0 +1,118 @@
+---
+- name: Load a variable file based on the OS type into the vastdata_os_defaults dict
+  ansible.builtin.include_vars:
+    file: "{{ item }}"
+    name: vastdata_os_defaults
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+    - "{{ ansible_os_family }}-{{ ansible_distribution_major_version }}.yml"
+    - "{{ ansible_distribution }}.yml"
+    - "{{ ansible_os_family }}.yml"
+
+- ansible.builtin.set_fact:
+    vastdata_use_cc_override: True
+    vastdata_kernel_cc: "{{ vastdata_kernel_cc | default( vastdata_os_defaults['vastdata_kernel_cc'] ) }}"
+  when:
+    - vastdata_kernel_cc_override_version | default ( vastdata_os_defaults[ 'vastdata_kernel_cc_override_version' ] ) is defined
+    - vastdata_kernel_cc | default ( vastdata_os_defaults[ 'vastdata_kernel_cc' ] ) is defined
+    - vastdata_kernel_cc_override_version | default ( vastdata_os_defaults[ 'vastdata_kernel_cc_override_version' ] ) < ansible_kernel | split('.') | first | int
+
+- name: Get latest rlease of vast from the meta url
+  ansible.builtin.uri:
+    url: "{{ vastdata_meta_url }}"
+    return_content: true
+  register: vast_meta
+  when: vastdata_version is not defined
+
+- ansible.builtin.set_fact:
+    vastdata_version: "{{ vast_meta.json[ vastdata_version_key | default( 'latest' ) ] }}"
+  when:
+    - vastdata_version is not defined
+
+- ansible.builtin.assert:
+    that:
+      - vastdata_version is defined
+    fail_msg: "vastdata_version needs to be set explicitly or the vastdata_meta_url and vastdata_version_key needs to be defined to get the latest appropriate version from the VAST metadata service."
+
+- name: Output vastdata_version when ANSIBLE_DEBUG is true
+  debug:
+    var: vastdata_version
+  when:
+    - ANSIBLE_DEBUG | default (False) | bool
+
+- name: Output vastdata_download_url when ANSIBLE_DEBUG is true
+  debug:
+    var: vastdata_download_url
+  when:
+    - ANSIBLE_DEBUG | default (False) | bool
+
+- name: download vastdata src
+  ansible.builtin.get_url:
+    url: "{{ vastdata_download_url }}"
+    dest: "{{ vastdata_tar_download_dir }}"
+
+- name: extract vastdata src
+  ansible.builtin.unarchive:
+    remote_src: true
+    src: "{{ vastdata_download_url }}"
+    dest: "{{ vastdata_tar_extract_dir }}"
+
+- name: update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: install package deps
+  ansible.builtin.package:
+    name: "{{ vastdata_packages | default( vastdata_os_defaults['vastdata_packages'] | default( [] ) ) }}"
+    state: latest
+
+- name: Apply patch to one file
+  ansible.posix.patch:
+    src: makefile.patch
+    basedir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}"
+
+- name: run build script
+  ansible.builtin.command: "{{ vastdata_build_cmd | default (vastdata_os_defaults['vastdata_build_cmd']) }} {{ '--dkms' if vastdata_build_dkms | bool else '' }}"
+  args:
+    chdir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}"
+  environment:
+    CC: "{{ vastdata_kernel_cc if vastdata_use_cc_override | default( False ) else 'gcc' }}"
+
+- name: ensure output data dir exists
+  ansible.builtin.file:
+    path: "{{ vastdata_publish_dir }}"
+    state: directory
+
+- name: copy build output to permanent location
+  ansible.builtin.copy:
+    remote_src: True
+    src: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/{{ vastdata_os_defaults['vastdata_pkg_type'] }}-dist/"
+    dest: "{{ vastdata_publish_dir }}"
+
+- name: Start RedHat block
+  block:
+  # yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
+  - name: install output rpm
+    ansible.builtin.shell: "dnf install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/rpm-dist/vastnfs-{{ vastdata_version }}*.rpm"
+    notify: rebuild_initramfs
+
+  - name: prevent users from updating the kernel on RHEL systems as DKMS is not supported on these systems
+    ansible.builtin.include_role:
+      name: yumexclude
+    vars:
+      yumexclude_add:
+        - kernel-core
+
+  # end RedHat block
+  when:
+    - vastdata_install_pkg | bool
+    - ansible_os_family == "RedHat"
+
+# yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
+- name: install output deb
+  ansible.builtin.shell: "apt install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/deb-dist/vastnfs-{{ 'dkms_' if vastdata_build_dkms | bool }}*.deb"
+  notify: rebuild_initramfs
+  when:
+    - vastdata_install_pkg | bool
+    - ansible_os_family == "Debian"

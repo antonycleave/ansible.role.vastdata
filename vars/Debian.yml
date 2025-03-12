@@ -1,0 +1,10 @@
+---
+vastdata_packages:
+  - debhelper
+  - dkms
+  - nfs-common
+
+# if the kernel has been updated to 6 it will be built with this gcc version
+vastdata_build_cmd: ./build-deb.sh
+vastdata_pkg_type: deb
+vastdata_update_initramfs_cmd: update-initramfs -u

@@ -1,0 +1,6 @@
+---
+vastdata_packages:
+  - dkms
+vastdata_build_cmd: ./build-rpm.sh
+vastdata_pkg_type: rpm
+vastdata_update_initramfs_cmd: dracut -f

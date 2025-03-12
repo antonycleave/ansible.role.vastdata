@@ -1,0 +1,12 @@
+---
+vastdata_packages:
+  - debhelper
+  - dkms
+  - nfs-common
+
+# if the kernel has been updated to 6 it will be built with this gcc version
+vastdata_kernel_cc_override_version: 5 # needed for ubuntu22 with HWE kernels only
+vastdata_kernel_cc: x86_64-linux-gnu-gcc-12 # needed for ubuntu22 with HWE kernels only
+vastdata_build_cmd: ./build-deb.sh
+vastdata_pkg_type: deb
+vastdata_update_initramfs_cmd: update-initramfs -u

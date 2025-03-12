@@ -22,7 +22,7 @@ with the default options it will grab the latest version from the VAST metadata 
 
 ## Dependencies
 
-ansible xxx
+This ansible is fairly generic but it has only been tested using ansible-playbook [core 2.11.12]
 
 https://github.com/antonycleave/ansible.role.yumexclude.git
 
@@ -30,20 +30,7 @@ it has been tested with ansible.role.yumexclude.git v 0.1.0 only
 
 ## Example Run
 
-**create ansible galaxy requirements file**
-
-```
-cat <<EOF >requirements.yml
----
-roles:
-  - name: yumexclude
-    src: https://github.com/antonycleave/ansible.role.yumexclude.git
-    version: v0.1.0
-EOF
-```
-
-configure Ansible to put galaxy roles in
-
+**configure Ansible to put galaxy roles where we can see them**
 ```
 cat <<EOF >ansible.cfg
 [defaults]
@@ -51,26 +38,28 @@ roles_path = roles.galaxy:roles
 EOF
 ```
 
-**create example playbook**
-
-this one targets a group called test in the inventory we will complete next
-
+**create ansible galaxy requirements file**
 ```
-cat <<EOF >site.yml
+cat <<EOF >requirements.yml
 ---
-- hosts: test
-  vars:
-    ANSIBLE_DEBUG: true
-  become: true
-  roles:
-    - vastdata
+roles:
+  - name: yumexclude
+    src: https://github.com/antonycleave/ansible.role.yumexclude.git
+    version: v0.1.0
+
+  - name: vastdata
+    src: https://github.com/antonycleave/ansible.role.vastdata.git
+    version: v0.1.0
 EOF
 ```
 
+**install roles using ansible galaxy**
+```
+ansible-galaxy install -r requirements.yml
+```
+
 **Prep inventory.**
-
 This is mine with a full testing suite of VMs make your own as appropriate
-
 ```
 cat inventory
 [all:vars]
@@ -94,7 +83,22 @@ test-rocky-9-mlnx ansible_host=192.168.7.147
 ansible_user=rocky
 ```
 
-run ansbile
+**create example playbook**
+this one targets a group called test in the inventory I just showed you
+
+```
+cat <<EOF >site.yml
+---
+- hosts: test
+  vars:
+    ANSIBLE_DEBUG: True # remove this to skip extra debug output, useful for dev
+  become: true
+  roles:
+    - vastdata
+EOF
+```
+
+**run ansible-playbook**
 
 ```
 ansible-playbook site.yml  -i inventory

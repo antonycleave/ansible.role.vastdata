@@ -15,3 +15,4 @@ vastdata_use_cc_override: False # certain OS need a different c compiler when us
 vastdata_build_dkms: True # only affects Ubuntu but we can only hope in future it's supported on RHEL
 vastdata_publish_dir: /opt/vast
 vastdata_install_pkg: True # if true install the package
+vastdata_reload_vast_modules: false # don't auto reload nfs modules (can fail when nfs filesystems are mounted)

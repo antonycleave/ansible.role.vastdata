@@ -95,7 +95,9 @@
   # yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
   - name: install output rpm
     ansible.builtin.shell: "dnf install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/rpm-dist/vastnfs-{{ vastdata_version }}*.rpm"
-    notify: rebuild_initramfs
+    notify:
+      - rebuild_initramfs
+      - reload_vast_modules
 
   - name: prevent users from updating the kernel on RHEL systems as DKMS is not supported on these systems
     ansible.builtin.include_role:
@@ -112,7 +114,9 @@
 # yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
 - name: install output deb
   ansible.builtin.shell: "apt install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/deb-dist/vastnfs-{{ 'dkms_' if vastdata_build_dkms | bool }}*.deb"
-  notify: rebuild_initramfs
+  notify:
+    - rebuild_initramfs
+    - reload_vast_modules
   when:
     - vastdata_install_pkg | bool
     - ansible_os_family == "Debian"

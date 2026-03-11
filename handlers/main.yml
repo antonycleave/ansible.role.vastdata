@@ -1,3 +1,7 @@
 ---
 - name: rebuild_initramfs
   ansible.builtin.command: "{{ vastdata_update_initramfs_cmd | default( vastdata_os_defaults['vastdata_update_initramfs_cmd'] ) }}"
+
+- name: reload_vast_modules
+  ansible.builtin.command: "vastnfs-ctl reload"
+  when: vastdata_reload_vast_modules | bool

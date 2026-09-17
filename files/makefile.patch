@@ -1,7 +1,20 @@
-ubuntu@finetune-2:/tmp/vastnfs-4.0.32$ cat makefile.patch
---- makefile    2024-12-19 10:31:53.000000000 +0000
-+++ makefile.new        2025-03-03 14:33:27.728931550 +0000
-@@ -127,11 +127,13 @@
+Guard vastnfs's unconditional CC assignment.
+
+Upstream's makefile assigns CC = $(CROSS_COMPILE)gcc unconditionally, and a
+makefile assignment beats a value passed in from outside. vastnfs's own DKMS
+runner detects the compiler the target kernel was built with (the first token
+of LINUX_COMPILER in the kernel's include/generated/compile.h) and passes it
+in; without this guard the makefile overwrites that with plain "gcc", which on
+Ubuntu HWE kernels is not the compiler that built the kernel.
+
+Verified 2026-09-17 against vastnfs 4.5.9 on aarch64 / 6.17.0-1032-nvidia-64k:
+patched builds log CC='aarch64-linux-gnu-gcc-13', unpatched log CC='gcc'.
+
+Regenerated against vastnfs 4.5.9; the hunk offset moved from 127 to 132.
+
+--- makefile
++++ makefile.new
+@@ -132,11 +132,13 @@
  # compiled with GCC 4.6.0 and above.
  # therefore, to prevent unknown symbol issues we disable function tracing.
  #

@@ -4,7 +4,16 @@ vastdata_packages:
   - dkms
   - nfs-common
 
-# if the kernel has been updated to 6 it will be built with this gcc version
 vastdata_build_cmd: ./build-deb.sh
 vastdata_pkg_type: deb
 vastdata_update_initramfs_cmd: update-initramfs -u
+
+vastdata_dkms_package_name: vastnfs-dkms
+vastdata_modules_package_name: vastnfs-modules
+
+# One of these must be installed for an OFED build: build-deb.sh reads them to
+# decide its mode and exits -1 with "OFED setup type not detected" if neither
+# is present while ofed_info reports a release.
+vastdata_ofed_kernel_packages:
+  - mlnx-ofed-kernel-modules
+  - mlnx-ofed-kernel-dkms

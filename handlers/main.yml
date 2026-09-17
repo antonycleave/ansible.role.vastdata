@@ -1,7 +1,16 @@
 ---
-- name: rebuild_initramfs
-  ansible.builtin.command: "{{ vastdata_update_initramfs_cmd | default( vastdata_os_defaults['vastdata_update_initramfs_cmd'] ) }}"
+# notify resolves play-wide, so these carry role-prefixed `listen` topics and
+# distinctive names: an unprefixed rebuild_initramfs handler collides with any
+# other role in the same play that has one.
+- name: Rebuild the initramfs after a vastnfs change
+  listen: vastdata_rebuild_initramfs
+  ansible.builtin.command: >-
+    {{ vastdata_update_initramfs_cmd
+       | default(vastdata_os_defaults['vastdata_update_initramfs_cmd']) }}
+  changed_when: true
 
-- name: reload_vast_modules
-  ansible.builtin.command: "vastnfs-ctl reload"
+- name: Reload the vastnfs kernel modules
+  listen: vastdata_reload_vast_modules
+  ansible.builtin.command: vastnfs-ctl reload
+  changed_when: true
   when: vastdata_reload_vast_modules | bool

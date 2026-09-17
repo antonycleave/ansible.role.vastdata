@@ -1,18 +1,51 @@
 ---
-# vastdata_meta_url is used to get the latest version
-vastdata_meta_url: https://vast-nfs.s3.amazonaws.com/meta.json
+# Pinned by default. An unpinned build is not reproducible: two runs a week
+# apart can ship different drivers. Set vastdata_version to an empty string to
+# opt back in to the metadata-service lookup.
+vastdata_version: "4.5.9"
 
+# sha256 checksums of known release tarballs, keyed by version. The download is
+# verified when the version in use appears here; one that does not is
+# downloaded unverified, so add an entry when pinning something new.
+vastdata_known_checksums:
+  "4.5.9": sha256:d2a8d0ea9bd6f7d0857f6fe873ae0503734d31ec2f6b67bc0caa188b105f3ba1
+
+# vastdata_meta_url and vastdata_version_key are only consulted when
+# vastdata_version is empty.
+vastdata_meta_url: https://vast-nfs.s3.amazonaws.com/meta.json
 vastdata_version_key: latest # key from the meta service like "latest_3" or "latest"
-#if you define a specific version in it will not query for the latest version and pull it direct
-#vastdata_version: 4.0.32
+
 #                 https://vast-nfs.s3.amazonaws.com/version/4.0.32              /source/vastnfs-4.0.32.tar.xz
-vastdata_baseurl: https://vast-nfs.s3.amazonaws.com/version/{{vastdata_version}}/source
-vastdata_download_url: "{{ vastdata_baseurl }}/vastnfs-{{vastdata_version}}.tar.xz"
+vastdata_baseurl: https://vast-nfs.s3.amazonaws.com/version/{{ vastdata_version }}/source
+vastdata_download_url: "{{ vastdata_baseurl }}/vastnfs-{{ vastdata_version }}.tar.xz"
 vastdata_tar_download_dir: /tmp # download the tar file to here
 vastdata_tar_extract_dir: /tmp # extract downloaded tar to here
-vastdata_tar_extracted_dir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}" # this dir will contain the extracted files
-vastdata_use_cc_override: False # certain OS need a different c compiler when using certain kernels the default is False this will get changed if detected
-vastdata_build_dkms: True # only affects Ubuntu but we can only hope in future it's supported on RHEL
+# where the extracted source lands; assumes the tar creates a vastnfs-<version> subdir
+vastdata_tar_extracted_dir: "{{ vastdata_tar_extract_dir }}/vastnfs-{{ vastdata_version }}"
+
+# Requests a DKMS build. The vendor build script overrides this whenever OFED
+# is installed: it picks the mode from the installed mlnx-ofed-kernel /
+# mlnx-ofa_kernel package and ignores --dkms. The role asserts afterwards that
+# the package it asked for is the package that got built.
+vastdata_build_dkms: true
+
+# auto - build against OFED when ofed_info reports a release (vendor default)
+# none - pass --no-ofed and build against the distro kernel only
+vastdata_ofed_mode: auto
+
 vastdata_publish_dir: /opt/vast
-vastdata_install_pkg: True # if true install the package
+vastdata_install_pkg: true # if true install the package
+
+# The download/build/install is skipped when the version in use is already
+# installed. A package's version string does not change when OFED does, so set
+# this to true to force a rebuild after an OFED/DOCA bump.
+vastdata_force_rebuild: false
+
 vastdata_reload_vast_modules: false # don't auto reload nfs modules (can fail when nfs filesystems are mounted)
+
+# The package the build is expected to produce, which depends on the mode.
+# The per-OS names come from vars/<os>.yml.
+vastdata_package_name: >-
+  {{ vastdata_os_defaults['vastdata_dkms_package_name']
+     if vastdata_build_dkms | bool
+     else vastdata_os_defaults['vastdata_modules_package_name'] }}

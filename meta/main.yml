@@ -1,2 +1,26 @@
 ---
-# meta for vastdata role
+galaxy_info:
+  role_name: vastdata
+  namespace: antonycleave
+  author: antonycleave
+  description: Download, build and install the VAST NFS driver
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - vast
+    - nfs
+    - rdma
+    - dkms
+
+# The RedHat path include_role's yumexclude. It is not declared here because
+# that would make every consumer install it, including Ubuntu-only ones.
+dependencies: []

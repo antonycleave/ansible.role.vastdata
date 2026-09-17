@@ -9,114 +9,180 @@
     - "{{ ansible_distribution }}.yml"
     - "{{ ansible_os_family }}.yml"
 
-- ansible.builtin.set_fact:
-    vastdata_use_cc_override: True
-    vastdata_kernel_cc: "{{ vastdata_kernel_cc | default( vastdata_os_defaults['vastdata_kernel_cc'] ) }}"
-  when:
-    - vastdata_kernel_cc_override_version | default ( vastdata_os_defaults[ 'vastdata_kernel_cc_override_version' ] ) is defined
-    - vastdata_kernel_cc | default ( vastdata_os_defaults[ 'vastdata_kernel_cc' ] ) is defined
-    - vastdata_kernel_cc_override_version | default ( vastdata_os_defaults[ 'vastdata_kernel_cc_override_version' ] ) < ansible_kernel | split('.') | first | int
-
-- name: Get latest rlease of vast from the meta url
+# vastdata_version is pinned in defaults/main.yml. Emptying it opts back in to
+# the metadata service, which hands back whatever is current at the time.
+- name: Get the latest release of vast from the meta url
   ansible.builtin.uri:
     url: "{{ vastdata_meta_url }}"
     return_content: true
-  register: vast_meta
-  when: vastdata_version is not defined
+  register: vastdata_meta
+  when: not vastdata_version
 
-- ansible.builtin.set_fact:
-    vastdata_version: "{{ vast_meta.json[ vastdata_version_key | default( 'latest' ) ] }}"
-  when:
-    - vastdata_version is not defined
+- name: Set the vastnfs version from the metadata service response
+  ansible.builtin.set_fact:
+    vastdata_version: "{{ vastdata_meta.json[vastdata_version_key | default('latest')] }}"
+  when: not vastdata_version
 
-- ansible.builtin.assert:
+- name: Assert a vastnfs version is known
+  ansible.builtin.assert:
     that:
       - vastdata_version is defined
-    fail_msg: "vastdata_version needs to be set explicitly or the vastdata_meta_url and vastdata_version_key needs to be defined to get the latest appropriate version from the VAST metadata service."
+      - vastdata_version | length > 0
+    fail_msg: >-
+      vastdata_version needs to be set explicitly, or vastdata_meta_url and
+      vastdata_version_key need to resolve a version from the VAST metadata
+      service.
 
-- name: Output vastdata_version when ANSIBLE_DEBUG is true
-  debug:
-    var: vastdata_version
-  when:
-    - ANSIBLE_DEBUG | default (False) | bool
+- name: Collect the installed packages
+  ansible.builtin.package_facts:
+    manager: auto
 
-- name: Output vastdata_download_url when ANSIBLE_DEBUG is true
-  debug:
-    var: vastdata_download_url
-  when:
-    - ANSIBLE_DEBUG | default (False) | bool
+# The mode is not ours to choose once OFED is installed: both vendor build
+# scripts read `ofed_info -s`, then pick DKMS or prebuilt modules from the
+# installed OFED kernel package and ignore --dkms. Reading the same inputs
+# here lets the role fail legibly instead of on the script's `exit -1`.
+- name: Read the installed OFED release
+  ansible.builtin.command: ofed_info -s
+  changed_when: false
+  failed_when: false
+  register: vastdata_ofed_info
 
-- name: download vastdata src
-  ansible.builtin.get_url:
-    url: "{{ vastdata_download_url }}"
-    dest: "{{ vastdata_tar_download_dir }}"
+- name: Record whether this will be an OFED build
+  ansible.builtin.set_fact:
+    vastdata_ofed_build: >-
+      {{ vastdata_ofed_mode == 'auto'
+         and vastdata_ofed_info.rc == 0
+         and vastdata_ofed_info.stdout | trim | length > 0 }}
 
-- name: extract vastdata src
-  ansible.builtin.unarchive:
-    remote_src: true
-    src: "{{ vastdata_download_url }}"
-    dest: "{{ vastdata_tar_extract_dir }}"
+- name: Assert the OFED kernel packages an OFED build needs are installed
+  ansible.builtin.assert:
+    that:
+      - vastdata_os_defaults['vastdata_ofed_kernel_packages']
+        | select('in', ansible_facts.packages) | list | length > 0
+    fail_msg: >-
+      ofed_info reports {{ vastdata_ofed_info.stdout | trim }} but none of
+      {{ vastdata_os_defaults['vastdata_ofed_kernel_packages'] | join(', ') }}
+      is installed, so {{ vastdata_os_defaults['vastdata_build_cmd'] }} cannot
+      detect its OFED setup type and exits -1. Install the OFED kernel
+      packages, or set vastdata_ofed_mode to "none" to build without OFED.
+  when: vastdata_ofed_build | bool
 
-- name: update apt cache
-  ansible.builtin.apt:
-    update_cache: true
-  when: ansible_os_family == "Debian"
+- name: Record whether the wanted vastnfs version is already installed
+  ansible.builtin.set_fact:
+    vastdata_already_installed: >-
+      {{ (ansible_facts.packages[vastdata_package_name | trim] | default([]))
+         | map(attribute='version') | select('search', vastdata_version)
+         | list | length > 0 }}
 
-- name: install package deps
-  ansible.builtin.package:
-    name: "{{ vastdata_packages | default( vastdata_os_defaults['vastdata_packages'] | default( [] ) ) }}"
-    state: latest
-
-- name: Apply patch to one file
-  ansible.posix.patch:
-    src: makefile.patch
-    basedir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}"
-
-- name: run build script
-  ansible.builtin.command: "{{ vastdata_build_cmd | default (vastdata_os_defaults['vastdata_build_cmd']) }} {{ '--dkms' if vastdata_build_dkms | bool else '' }}"
-  args:
-    chdir: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}"
-  environment:
-    CC: "{{ vastdata_kernel_cc if vastdata_use_cc_override | default( False ) else 'gcc' }}"
-
-- name: ensure output data dir exists
-  ansible.builtin.file:
-    path: "{{ vastdata_publish_dir }}"
-    state: directory
-
-- name: copy build output to permanent location
-  ansible.builtin.copy:
-    remote_src: True
-    src: "{{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/{{ vastdata_os_defaults['vastdata_pkg_type'] }}-dist/"
-    dest: "{{ vastdata_publish_dir }}"
-
-- name: Start RedHat block
+- name: Build and install vastnfs
+  when: vastdata_force_rebuild | bool or not vastdata_already_installed | bool
   block:
-  # yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
-  - name: install output rpm
-    ansible.builtin.shell: "dnf install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/rpm-dist/vastnfs-{{ vastdata_version }}*.rpm"
-    notify:
-      - rebuild_initramfs
-      - reload_vast_modules
+    - name: Download vastdata src
+      ansible.builtin.get_url:
+        url: "{{ vastdata_download_url }}"
+        dest: "{{ vastdata_tar_download_dir }}/vastnfs-{{ vastdata_version }}.tar.xz"
+        checksum: "{{ vastdata_known_checksums[vastdata_version] | default(omit) }}"
+        mode: "0644"
+      register: vastdata_download
 
-  - name: prevent users from updating the kernel on RHEL systems as DKMS is not supported on these systems
-    ansible.builtin.include_role:
-      name: yumexclude
-    vars:
-      yumexclude_add:
-        - kernel-core
+    # Extracts the file just downloaded. Handing unarchive the URL again would
+    # download the tarball a second time, unverified.
+    - name: Extract vastdata src
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ vastdata_download.dest }}"
+        dest: "{{ vastdata_tar_extract_dir }}"
 
-  # end RedHat block
-  when:
-    - vastdata_install_pkg | bool
-    - ansible_os_family == "RedHat"
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_os_family == "Debian"
 
-# yeah. . . I know this is always changed. . .  and always triggers the handler. . .it's not the end of the world
-- name: install output deb
-  ansible.builtin.shell: "apt install -y {{vastdata_tar_extract_dir}}/vastnfs-{{ vastdata_version }}/deb-dist/vastnfs-{{ 'dkms_' if vastdata_build_dkms | bool }}*.deb"
-  notify:
-    - rebuild_initramfs
-    - reload_vast_modules
-  when:
-    - vastdata_install_pkg | bool
-    - ansible_os_family == "Debian"
+    - name: Install package deps
+      ansible.builtin.package:
+        name: "{{ vastdata_packages | default(vastdata_os_defaults['vastdata_packages'] | default([])) }}"
+        state: present
+
+    # See files/makefile.patch: the guard stops the vendor makefile
+    # overwriting the compiler its own DKMS runner derives from the target
+    # kernel. Do not drop it because "the build works without it" — it only
+    # works where the distro default gcc happens to be that compiler.
+    - name: Apply the CC guard patch to the vendor makefile
+      ansible.posix.patch:
+        src: makefile.patch
+        basedir: "{{ vastdata_tar_extracted_dir }}"
+
+    - name: Run build script
+      ansible.builtin.command:
+        cmd: >-
+          {{ vastdata_build_cmd | default(vastdata_os_defaults['vastdata_build_cmd']) }}
+          {{ '--dkms' if vastdata_build_dkms | bool else '' }}
+          {{ '--no-ofed' if not vastdata_ofed_build | bool else '' }}
+        chdir: "{{ vastdata_tar_extracted_dir }}"
+      changed_when: true
+
+    - name: Find the built package
+      ansible.builtin.find:
+        paths: "{{ vastdata_tar_extracted_dir }}/{{ vastdata_os_defaults['vastdata_pkg_type'] }}-dist"
+        patterns: "{{ vastdata_package_name | trim }}[_-]*.{{ vastdata_os_defaults['vastdata_pkg_type'] }}"
+      register: vastdata_built
+
+    # Catches the mode being overridden underneath us: asking for a DKMS build
+    # on a host with prebuilt OFED kernel modules yields a vastnfs-modules (or
+    # on RedHat, vastnfs) package instead, and nothing else reports that.
+    - name: Assert the build produced the package that was asked for
+      ansible.builtin.assert:
+        that:
+          - vastdata_built.matched == 1
+        fail_msg: >-
+          Expected exactly one {{ vastdata_package_name | trim }} package in
+          {{ vastdata_tar_extracted_dir }}/{{ vastdata_os_defaults['vastdata_pkg_type'] }}-dist
+          but found {{ vastdata_built.matched }}. With OFED installed the
+          vendor build script chooses DKMS or prebuilt modules from the
+          installed OFED kernel package and ignores vastdata_build_dkms
+          ({{ vastdata_build_dkms }}), so this usually means the host's OFED
+          install type does not match the requested mode.
+
+    - name: Ensure output data dir exists
+      ansible.builtin.file:
+        path: "{{ vastdata_publish_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy build output to permanent location
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ vastdata_tar_extracted_dir }}/{{ vastdata_os_defaults['vastdata_pkg_type'] }}-dist/"
+        dest: "{{ vastdata_publish_dir }}"
+        mode: "0644"
+
+    - name: Start RedHat block
+      when:
+        - vastdata_install_pkg | bool
+        - ansible_os_family == "RedHat"
+      block:
+        - name: Install output rpm
+          ansible.builtin.dnf:
+            name: "{{ vastdata_built.files[0].path }}"
+            state: present
+            disable_gpg_check: true
+          notify:
+            - vastdata_rebuild_initramfs
+            - vastdata_reload_vast_modules
+
+        - name: Prevent users from updating the kernel on RHEL systems as DKMS is not supported on these systems
+          ansible.builtin.include_role:
+            name: yumexclude
+          vars:
+            yumexclude_add:
+              - kernel-core
+
+    - name: Install output deb
+      ansible.builtin.apt:
+        deb: "{{ vastdata_built.files[0].path }}"
+      notify:
+        - vastdata_rebuild_initramfs
+        - vastdata_reload_vast_modules
+      when:
+        - vastdata_install_pkg | bool
+        - ansible_os_family == "Debian"

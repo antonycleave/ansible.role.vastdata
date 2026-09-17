@@ -17,8 +17,51 @@ it has been tested on:
   - no ofed
 - Ubuntu 22.04 (5.5.0 kernel)
   - no ofed
+- Ubuntu 24.04 (6.17.0 kernel, aarch64/GB300)
+  - mlnx ofed (DOCA 3.3.0, OFED-internal-26.01-1.0.0), vastnfs 4.5.9
 
-with the default options it will grab the latest version from the VAST metadata service and get the the latest version. It will patch the makfile to allow the default C compiler to be set via and env var to fix an annoying bug in Ubuntu when using the HWE kernels and then build it with the appropriate compiler in /tmp. Once built it will copy the build artifacts to the default publish dir (/opt/vast/). Finally it will install it and on RHEL system exclude the kernel from further updates.
+with the default options it downloads the **pinned** version, verifies it
+against a known sha256, patches the vendor makefile so the compiler the kernel
+was built with survives, and builds in /tmp. Once built it copies the build
+artifacts to the default publish dir (/opt/vast/). Finally it installs the
+package and, on RHEL systems, excludes the kernel from further updates.
+
+### Pinned by default
+
+`vastdata_version` defaults to a specific release, with its sha256 in
+`vastdata_known_checksums`. An unpinned build is not reproducible — two runs a
+week apart can ship different drivers. Set `vastdata_version: ""` to opt back
+in to the metadata-service lookup, and add a checksum entry when pinning
+something new or the download goes unverified.
+
+### The makefile patch is load-bearing
+
+`files/makefile.patch` wraps vastnfs's unconditional `CC = $(CROSS_COMPILE)gcc`
+in an `ifndef CC` guard. vastnfs's own DKMS runner detects the compiler the
+target kernel was built with and passes it in; without the guard the makefile
+overwrites that with plain `gcc`. On aarch64/6.17 a patched build logs
+`CC='aarch64-linux-gnu-gcc-13'` and an unpatched one logs `CC='gcc'` — the same
+compiler *there*, but not on an Ubuntu HWE kernel. The role no longer sets `CC`
+itself: the old `vastdata_kernel_cc` default was x86-only and was applied to
+the packaging step rather than the compile, so it never took effect on a DKMS
+build.
+
+### OFED mode is mostly not yours to choose
+
+Both vendor build scripts read `ofed_info -s` and then pick DKMS or prebuilt
+modules from the installed `mlnx-ofed-kernel-*` / `mlnx-ofa_kernel-*` package,
+**ignoring `--dkms`**. The role therefore asserts up front that an OFED build
+has an OFED kernel package to detect (otherwise the script exits -1 with "OFED
+setup type not detected"), and asserts afterwards that the package it asked for
+is the one that got built. Set `vastdata_ofed_mode: none` to pass `--no-ofed`
+and build against the distro kernel only.
+
+### Re-runs
+
+The role skips download, build and install when the wanted version is already
+installed, so a second run is a no-op instead of a rebuild. A package version
+string does not change when OFED does, so set `vastdata_force_rebuild: true` to
+rebuild against a new OFED/DOCA stack.
 
 ## Dependencies
 
@@ -90,8 +133,6 @@ this one targets a group called test in the inventory I just showed you
 cat <<EOF >site.yml
 ---
 - hosts: test
-  vars:
-    ANSIBLE_DEBUG: True # remove this to skip extra debug output, useful for dev
   become: true
   roles:
     - vastdata
@@ -176,7 +217,7 @@ sometimes we want to combine lists to use both. . . this is almost certainly a b
 - name: install package deps
   ansible.builtin.package:
     name: "{{ vastdata_packages | default( [] ) + vastdata_os_defaults['vastdata_packages'] | default( [] ) }}"
-    state: latest
+    state: present
 ```
 
 this means that if you provide a list of  vastdata_packages in group vars they will get added to the defaults. . . just writing this has made me change the implementation to  use an override like the earlier example but you *could* use this if you wanted dictionaries are probably safer to combine

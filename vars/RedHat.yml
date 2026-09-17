@@ -4,3 +4,14 @@ vastdata_packages:
 vastdata_build_cmd: ./build-rpm.sh
 vastdata_pkg_type: rpm
 vastdata_update_initramfs_cmd: dracut -f
+
+vastdata_dkms_package_name: vastnfs-dkms
+vastdata_modules_package_name: vastnfs
+
+# One of these must be installed for an OFED build: build-rpm.sh reads them to
+# decide its mode and exits -1 with "OFED setup type not detected" if none is
+# present while ofed_info reports a release.
+vastdata_ofed_kernel_packages:
+  - kmod-mlnx-ofa_kernel
+  - mlnx-ofa_kernel-modules
+  - mlnx-ofa_kernel-dkms

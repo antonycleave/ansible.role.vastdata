@@ -58,10 +58,19 @@ and build against the distro kernel only.
 
 ### Re-runs
 
-The role skips download, build and install when the wanted version is already
-installed, so a second run is a no-op instead of a rebuild. A package version
-string does not change when OFED does, so set `vastdata_force_rebuild: true` to
-rebuild against a new OFED/DOCA stack.
+The role skips download, build and install when the package this build would
+produce is already installed, so a second run is a no-op instead of a rebuild.
+The comparison reconstructs the full package version, including the OFED
+release the vendor scripts bake into it
+(`4.5.9-vastdata-OFED-internal-26.01-1.0.0`), so an OFED/DOCA bump looks like a
+different version and rebuilds without anyone having to remember a flag.
+`vastdata_force_rebuild: true` is the escape hatch for the rest — a changed
+kernel, a partial install, or just wanting the build re-run.
+
+Note that installing a rebuild of an *identical* version is an apt/dnf no-op,
+so the task reports `ok` and the handlers do not fire. That is correct: there
+is nothing to change. Use `vastdata_force_rebuild` with a genuinely different
+version (or a purge) if you need the module physically rebuilt.
 
 ## Dependencies
 

@@ -36,9 +36,11 @@ vastdata_ofed_mode: auto
 vastdata_publish_dir: /opt/vast
 vastdata_install_pkg: true # if true install the package
 
-# The download/build/install is skipped when the version in use is already
-# installed. A package's version string does not change when OFED does, so set
-# this to true to force a rebuild after an OFED/DOCA bump.
+# The download/build/install is skipped when the package this build would
+# produce is already installed. That comparison includes the OFED release the
+# vendor scripts bake into the package version, so an OFED/DOCA bump rebuilds
+# on its own. This flag is the escape hatch for everything else — a changed
+# kernel, a partial install, or simply wanting the build re-run.
 vastdata_force_rebuild: false
 
 vastdata_reload_vast_modules: false # don't auto reload nfs modules (can fail when nfs filesystems are mounted)

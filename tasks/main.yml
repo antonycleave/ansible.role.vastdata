@@ -67,11 +67,25 @@
       packages, or set vastdata_ofed_mode to "none" to build without OFED.
   when: vastdata_ofed_build | bool
 
-- name: Record whether the wanted vastnfs version is already installed
+# The vendor scripts bake the OFED release into the package version, exactly as
+# `ofed_info -s` reports it with the trailing colon dropped and underscores
+# turned into dots: 4.5.9-vastdata-OFED-internal-26.01-1.0.0. Reconstructing
+# that string means an OFED/DOCA bump looks like a different version and
+# rebuilds on its own, rather than needing someone to remember a flag.
+- name: Record the package version this build would produce
+  ansible.builtin.set_fact:
+    vastdata_expected_version: >-
+      {{ vastdata_version }}-vastdata{{
+         '-' ~ (vastdata_ofed_info.stdout | trim | regex_replace(':.*$', '')
+                | regex_replace('_', '.'))
+         if vastdata_ofed_build | bool else '' }}
+
+- name: Record whether the wanted vastnfs build is already installed
   ansible.builtin.set_fact:
     vastdata_already_installed: >-
       {{ (ansible_facts.packages[vastdata_package_name | trim] | default([]))
-         | map(attribute='version') | select('search', vastdata_version)
+         | map(attribute='version')
+         | select('search', vastdata_expected_version | trim | regex_escape)
          | list | length > 0 }}
 
 - name: Build and install vastnfs
